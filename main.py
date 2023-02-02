@@ -2,9 +2,24 @@ import os
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import tweepy
+from google.cloud import bigquery
 
-def fetch_recent_tweets_for_user(client, user_id):
-    response = client.get_users_tweets(user_id, tweet_fields=["created_at"])
+DATASET_ID = "twitter_dataset"
+TABLE_ID = "tweets"
+
+def insert_rows_to_bq(rows):
+    client = bigquery.Client() # searches for credentials in an environment variable
+    dataset_ref = client.dataset(DATASET_ID)
+    table_ref = dataset_ref.table(TABLE_ID)
+    errors = client.insert_rows_json(table_ref, rows)
+    if len(errors) == 0:
+        print("Successfully inserted rows")
+    else:
+        print("Errors inserting rows:", errors)
+
+def fetch_recent_tweets_for_user(client, user_id, start_time):
+    response = client.get_users_tweets(user_id, tweet_fields=["created_at"], 
+        start_time=start_time)
     # print(type(response.data[0]))
     rows = []
     if response.data is not None:
@@ -22,9 +37,12 @@ def entry_point(request): # request is a Flask request
     bearer_token = os.environ.get("BEARER_TOKEN")
     # print(bearer_token)
     client = tweepy.Client(bearer_token=bearer_token)
-    tweet_rows = fetch_recent_tweets_for_user(client, user_id)
+    start_time = datetime.now(timezone.utc) - timedelta(hours=24)
+    start_time = start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    tweet_rows = fetch_recent_tweets_for_user(client, user_id, start_time)
     print(tweet_rows)
-    # TODO: insert tweet_rows into a BigQuery table
+    # insert tweet_rows into a BigQuery table
+    insert_rows_to_bq(tweet_rows)
     # we need to restructure our code for Cloud Functions
     return "Success", 200
 
